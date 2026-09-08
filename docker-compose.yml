@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: online_compiler_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-online_compiler}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-online_compiler}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - compiler_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: online_compiler_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - compiler_net
+
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/api/Dockerfile
+    container_name: online_compiler_api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-5000}:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-online_compiler};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__Secret: "${JWT_SECRET:-SuperSecretEnterpriseProductionKeyMouSouCompiler2026!}"
+      Jwt__Issuer: "OnlineCompilerV2"
+      Jwt__Audience: "OnlineCompilerV2Client"
+      OpenRouter__ApiKey: "${OPENROUTER_API_KEY:-}"
+      OpenRouter__Model: "${OPENROUTER_MODEL:-meta-llama/llama-3.2-3b-instruct:free}"
+      App__FrontendUrl: "${FRONTEND_URL:-http://localhost:3000}"
+    networks:
+      - compiler_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/worker/Dockerfile
+    container_name: online_compiler_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-online_compiler};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__Redis: "redis:6379"
+      OpenRouter__ApiKey: "${OPENROUTER_API_KEY:-}"
+      OpenRouter__Model: "${OPENROUTER_MODEL:-meta-llama/llama-3.2-3b-instruct:free}"
+      Execution__TimeoutSeconds: "${EXECUTION_TIMEOUT_SECONDS:-15}"
+    networks:
+      - compiler_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deployment/docker/frontend/Dockerfile
+    container_name: online_compiler_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - api
+    networks:
+      - compiler_net
+
+networks:
+  compiler_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
