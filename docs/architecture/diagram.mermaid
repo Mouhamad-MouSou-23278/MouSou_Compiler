@@ -1,0 +1,83 @@
+```mermaid
+graph TD
+    subgraph Client Layer [Frontend Client - React 18 / TypeScript]
+        UI[Monaco Code Editor & Terminal UI]
+        Zustand[Zustand Global State Store]
+        Axios[Axios HTTP Client + Interceptors]
+        SignalRClient[SignalR WebSocket Client]
+    end
+
+    subgraph Gateway & Ingress [Reverse Proxy / Web Server]
+        Nginx[Nginx Reverse Proxy :80/:3000]
+    end
+
+    subgraph Application Server [ASP.NET Core 8 Web API - Clean Architecture]
+        API[Web API Gateway :5000]
+        AuthCtrl[AuthController - HTTP-Only Cookie JWT]
+        ProjectCtrl[ProjectsController]
+        FileCtrl[FilesController]
+        ExecCtrl[ExecutionsController]
+        AICtrl[AIController]
+        Hub[ExecutionHub - /hubs/execution]
+        Middlewares[RFC 7807 ProblemDetails / RateLimiter / SecurityHeaders]
+    end
+
+    subgraph Data & Queue Tier [Infrastructure Storage]
+        Postgres[(PostgreSQL 16 - Relational DB)]
+        Redis[(Redis 7 - Queue & Live Input Streams)]
+    end
+
+    subgraph Worker Tier [Background Execution Engine]
+        Worker[ExecutionWorker HostedService]
+    end
+
+    subgraph Sandboxed Docker Containers [Ephemeral Isolated Sandboxes]
+        direction TB
+        PySandbox["Python 3.11 Sandbox (net=none, 256MB RAM, 1 CPU, non-root)"]
+        NodeSandbox["Node.js 20 Sandbox (net=none, 256MB RAM, 1 CPU, non-root)"]
+        GoSandbox["Go 1.22 Sandbox (net=none, 256MB RAM, 1 CPU, non-root)"]
+        OtherSandbox["C# / C++ / Rust Sandboxes"]
+    end
+
+    subgraph External AI Cloud [OpenRouter LLM Intelligence]
+        OpenRouter[OpenRouter API - Free LLM Models / Claude / Llama / Gemini]
+    end
+
+    %% Communication links
+    UI --> Zustand
+    Zustand --> Axios
+    Zustand --> SignalRClient
+    Axios --> Nginx
+    SignalRClient --> Nginx
+
+    Nginx -->|/api/*| API
+    Nginx -->|/hubs/*| Hub
+
+    API --> Middlewares
+    Middlewares --> AuthCtrl
+    Middlewares --> ProjectCtrl
+    Middlewares --> FileCtrl
+    Middlewares --> ExecCtrl
+    Middlewares --> AICtrl
+
+    AuthCtrl --> Postgres
+    ProjectCtrl --> Postgres
+    FileCtrl --> Postgres
+    ExecCtrl --> Postgres
+    ExecCtrl -->|Enqueue Job| Redis
+
+    AICtrl --> OpenRouter
+    AICtrl --> Postgres
+
+    Worker -->|Dequeue Job| Redis
+    Worker -->|Read & Update Status| Postgres
+    Worker -->|Stream Output Chunks| Hub
+    Hub -->|Real-time Logs WebSocket| SignalRClient
+
+    Worker -->|Docker.DotNet Engine| PySandbox
+    Worker -->|Docker.DotNet Engine| NodeSandbox
+    Worker -->|Docker.DotNet Engine| GoSandbox
+    Worker -->|Docker.DotNet Engine| OtherSandbox
+
+    Worker -.->|Auto-Fix on Error| AICtrl
+```

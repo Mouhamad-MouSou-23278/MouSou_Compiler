@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: Online Compiler V2 REST API
+  description: Enterprise Code Execution Sandboxing, Real-Time Streaming & AI Copilot Platform
+  version: 2.0.0
+  contact:
+    name: Mouhamad MouSou
+    email: admin@mousou.dev
+
+servers:
+  - url: http://localhost:5000
+    description: Local Development Server
+  - url: http://localhost:3000/api
+    description: Nginx Reverse Proxy Ingress
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: RefreshToken
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        firstName: { type: string }
+        lastName: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        userId: { type: string, format: uuid }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        role: { type: string, enum: [User, Admin] }
+
+    CreateProjectRequest:
+      type: object
+      required: [name, language]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        language: { type: string, example: "python" }
+
+    ProjectResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        language: { type: string }
+        isArchived: { type: boolean }
+        fileCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    RunExecutionRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId: { type: string, format: uuid }
+        stdinInput: { type: string }
+        autoFixOnError: { type: boolean, default: false }
+
+    ExecutionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        language: { type: string }
+        status: { type: string, enum: [Queued, Running, Completed, Failed, Timeout, MemoryExceeded] }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        exitCode: { type: integer }
+        trigger: { type: string }
+
+    AIAnalyzeRequest:
+      type: object
+      required: [projectId, type]
+      properties:
+        projectId: { type: string, format: uuid }
+        type: { type: string, enum: [Explain, BugFix, Refactor, TestGeneration, SecurityAnalysis, PerformanceAnalysis, Documentation] }
+        specificFilePath: { type: string }
+        customPrompt: { type: string }
+
+    AIAnalyzeResponse:
+      type: object
+      properties:
+        jobId: { type: string, format: uuid }
+        type: { type: string }
+        analysis: { type: string }
+        suggestedCode: { type: string }
+        diffPatch: { type: string }
+
+    AIAutoFixRequest:
+      type: object
+      required: [executionId]
+      properties:
+        executionId: { type: string, format: uuid }
+
+    AIAutoFixResponse:
+      type: object
+      properties:
+        jobId: { type: string, format: uuid }
+        errorDiagnosis: { type: string }
+        targetFilePath: { type: string }
+        fixedCode: { type: string }
+        diffPatch: { type: string }
+        successfullyPatched: { type: boolean }
+        newExecutionId: { type: string, format: uuid }
+
+paths:
+  /api/auth/register:
+    post:
+      summary: Register a new developer account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        200:
+          description: Account created successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+
+  /api/auth/login:
+    post:
+      summary: Authenticate user and issue JWT and HTTP-Only refresh cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+
+  /api/auth/refresh:
+    post:
+      summary: Rotate refresh token and issue new access token
+      security:
+        - CookieAuth: []
+      responses:
+        200:
+          description: Token refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+
+  /api/auth/logout:
+    post:
+      summary: Invalidate refresh token and clear cookie
+      security:
+        - BearerAuth: []
+      responses:
+        204:
+          description: Logged out
+
+  /api/projects:
+    get:
+      summary: List user projects
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProjectResponse' }
+    post:
+      summary: Create new project workspace
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        201:
+          description: Project created
+
+  /api/executions:
+    post:
+      summary: Enqueue sandboxed code execution
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunExecutionRequest' }
+      responses:
+        202:
+          description: Execution enqueued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionResponse' }
+
+  /api/ai/analyze:
+    post:
+      summary: Analyze code using OpenRouter LLM
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIAnalyzeRequest' }
+      responses:
+        200:
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIAnalyzeResponse' }
+
+  /api/ai/auto-fix:
+    post:
+      summary: Diagnose error, patch file, and trigger re-execution
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIAutoFixRequest' }
+      responses:
+        200:
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIAutoFixResponse' }
+
+  /healthz:
+    get:
+      summary: Liveness and readiness probe for Docker / Kubernetes
+      responses:
+        200:
+          description: System healthy
